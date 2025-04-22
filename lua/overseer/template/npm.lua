@@ -55,16 +55,16 @@ local function get_candidate_package_files(opts)
 end
 
 ---@param candidate_packages string[]
----@return string|nil
+---@return string|nil, number|nil
 local function get_package_file_from_candidates(candidate_packages)
   -- go through candidate package files from closest to the file to least close
-  for _, package in ipairs(candidate_packages) do
+  for i, package in ipairs(candidate_packages) do
     local data = files.load_json_file(package)
     if data.scripts or data.workspaces then
-      return package
+      return package, i
     end
   end
-  return nil
+  return nil, nil
 end
 
 ---@param opts overseer.SearchParams
@@ -107,11 +107,14 @@ end
 ---@return string|nil, string
 local function get_package_and_manager(opts)
   local candidate_packages = get_candidate_package_files(opts)
-  local package_file = get_package_file_from_candidates(candidate_packages)
+  local package_file, i = get_package_file_from_candidates(candidate_packages)
   local package_manager = "npm"
-  if package_file then
-    package_manager = pick_package_manager(package_file)
-      or pick_package_manager_from_candidates(candidate_packages)
+  if package_file and i then
+    -- move the package_file to the start of the list so it will be checked
+    -- first and fallback to a candidate if it couldn't be found
+    table.remove(candidate_packages, i)
+    table.insert(candidate_packages, 1, package_file)
+    package_manager = pick_package_manager_from_candidates(candidate_packages)
   end
 
   return package_file, package_manager
