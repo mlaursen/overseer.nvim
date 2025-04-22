@@ -54,10 +54,9 @@ local function get_candidate_package_files(opts)
   })
 end
 
----@param opts overseer.SearchParams
+---@param candidate_packages string[]
 ---@return string|nil
-local function get_package_file(opts)
-  local candidate_packages = get_candidate_package_files(opts)
+local function get_package_file_from_candidates(candidate_packages)
   -- go through candidate package files from closest to the file to least close
   for _, package in ipairs(candidate_packages) do
     local data = files.load_json_file(package)
@@ -68,6 +67,15 @@ local function get_package_file(opts)
   return nil
 end
 
+---@param opts overseer.SearchParams
+---@return string|nil
+local function get_package_file(opts)
+  local candidate_packages = get_candidate_package_files(opts)
+  return get_package_file_from_candidates(candidate_packages)
+end
+
+---@param package_file string
+---@return string|nil
 local function pick_package_manager(package_file)
   local package_dir = vim.fs.dirname(package_file)
   for mgr, lockfiles in pairs(mgr_lockfiles) do
@@ -79,7 +87,34 @@ local function pick_package_manager(package_file)
       return mgr
     end
   end
+  return nil
+end
+
+---@param candidate_packages string[]
+---@return string
+local function pick_package_manager_from_candidates(candidate_packages)
+  for _, package in ipairs(candidate_packages) do
+    local package_manager = pick_package_manager(package)
+    if package_manager then
+      return package_manager
+    end
+  end
+
   return "npm"
+end
+
+---@param opts overseer.SearchParams
+---@return string|nil, string
+local function get_package_and_manager(opts)
+  local candidate_packages = get_candidate_package_files(opts)
+  local package_file = get_package_file_from_candidates(candidate_packages)
+  local package_manager = "npm"
+  if package_file then
+    package_manager = pick_package_manager(package_file)
+      or pick_package_manager_from_candidates(candidate_packages)
+  end
+
+  return package_file, package_manager
 end
 
 return {
@@ -88,11 +123,10 @@ return {
   end,
   condition = {
     callback = function(opts)
-      local package_file = get_package_file(opts)
+      local package_file, package_manager = get_package_and_manager(opts)
       if not package_file then
         return false, "No package.json file found"
       end
-      local package_manager = pick_package_manager(package_file)
       if vim.fn.executable(package_manager) == 0 then
         return false, string.format("Could not find command '%s'", package_manager)
       end
@@ -100,12 +134,11 @@ return {
     end,
   },
   generator = function(opts, cb)
-    local package = get_package_file(opts)
+    local package, bin = get_package_and_manager(opts)
     if not package then
       cb({})
       return
     end
-    local bin = pick_package_manager(package)
     local data = files.load_json_file(package)
     local ret = {}
     if data.scripts then
